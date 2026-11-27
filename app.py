@@ -74,7 +74,7 @@ def start_telegram_worker(tg_token: str, gemini_api_key: str):
     def handle_log(message):
         try:
             response = ai_client.models.generate_content(
-                model="gemini-2.5-flash",
+                model="gemini-3.8-flash",
                 contents=message.text,
                 config=types.GenerateContentConfig(
                     system_instruction=system_prompt,
