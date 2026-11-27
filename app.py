@@ -1,6 +1,7 @@
 import json
 import os
 import threading
+import time
 from datetime import datetime
 from typing import Literal, Optional
 
@@ -72,38 +73,49 @@ def start_telegram_worker(tg_token: str, gemini_api_key: str):
 
     @bot.message_handler(func=lambda m: True)
     def handle_log(message):
-        try:
-            response = ai_client.models.generate_content(
-                model="gemini-3.8-flash",
-                contents=message.text,
-                config=types.GenerateContentConfig(
-                    system_instruction=system_prompt,
-                    response_mime_type="application/json",
-                    response_schema=TernakRecord,
-                ),
-            )
-            parsed: TernakRecord = response.parsed
-            record_dict = {
-                "waktu": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                "peternak": message.from_user.first_name or "Peternak",
-                "nama_ternak": parsed.nama_ternak,
-                "kategori": parsed.kategori,
-                "bobot_kg": parsed.bobot_kg,
-                "detail_aktivitas": parsed.detail_aktivitas,
-                "pesan_asli": message.text,
-            }
-            save_record(record_dict)
+        models_to_try = ["gemini-3.8-flash", "gemini-3.8-flash", "gemini-3.8-flash-lite"]
+        last_error = None
 
-            bobot_str = f"\n• Bobot: *{parsed.bobot_kg} kg*" if parsed.bobot_kg else ""
-            bot.reply_to(
-                message,
-                f"✅ *Tercatat di CAPRIN!*\n"
-                f"• Ternak: *{parsed.nama_ternak}*\n"
-                f"• Kategori: `{parsed.kategori}`{bobot_str}\n"
-                f"• Catatan: {parsed.detail_aktivitas}",
-            )
-        except Exception as e:
-            bot.reply_to(message, f"Maaf, gagal memproses pesan: `{e}`")
+        for model_name in models_to_try:
+            try:
+                response = ai_client.models.generate_content(
+                    model=model_name,
+                    contents=message.text,
+                    config=types.GenerateContentConfig(
+                        system_instruction=system_prompt,
+                        response_mime_type="application/json",
+                        response_schema=TernakRecord,
+                    ),
+                )
+                parsed: TernakRecord = response.parsed
+                record_dict = {
+                    "waktu": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                    "peternak": message.from_user.first_name or "Peternak",
+                    "nama_ternak": parsed.nama_ternak,
+                    "kategori": parsed.kategori,
+                    "bobot_kg": parsed.bobot_kg,
+                    "detail_aktivitas": parsed.detail_aktivitas,
+                    "pesan_asli": message.text,
+                }
+                save_record(record_dict)
+
+                bobot_str = f"\n• Bobot: *{parsed.bobot_kg} kg*" if parsed.bobot_kg else ""
+                bot.reply_to(
+                    message,
+                    f"✅ *Tercatat di CAPRIN!*\n"
+                    f"• Ternak: *{parsed.nama_ternak}*\n"
+                    f"• Kategori: `{parsed.kategori}`{bobot_str}\n"
+                    f"• Catatan: {parsed.detail_aktivitas}",
+                )
+                return
+            except Exception as e:
+                last_error = e
+                time.sleep(2)
+
+        bot.reply_to(
+            message,
+            "⏳ Server AI sedang sibuk sebentar. Coba kirim ulang catatanmu 10 detik lagi ya!",
+        )
 
     thread = threading.Thread(target=bot.infinity_polling, kwargs={"skip_pending": True}, daemon=True)
     thread.start()
